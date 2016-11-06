@@ -625,6 +625,17 @@ typedef struct os_tcb {
 #endif
 } OS_TCB;
 
+/*================================================================================
+EDF extra data for EDF
+*/
+typedef struct edf_data {
+	INT32U c_value;		// the task needs to consume c_value ticks in p_value ticks as a period
+	INT32U p_value;
+	INT32U remain_time;	// the task remain to comsume in a period
+	INT32U deadline;	// the deadline of a task
+	INT32U start;
+}EDF_DATA;
+
 /*$PAGE*/
 /*
 *********************************************************************************************************

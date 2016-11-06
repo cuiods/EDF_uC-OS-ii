@@ -36,7 +36,7 @@
 *       Indexed value corresponds to highest priority bit position (i.e. 0..7)
 *********************************************************************************************************
 */
-
+#include<stdio.h>
 INT8U  const  OSUnMapTbl[256] = {
     0u, 0u, 1u, 0u, 2u, 0u, 1u, 0u, 3u, 0u, 1u, 0u, 2u, 0u, 1u, 0u, /* 0x00 to 0x0F                   */
     4u, 0u, 1u, 0u, 2u, 0u, 1u, 0u, 3u, 0u, 1u, 0u, 2u, 0u, 1u, 0u, /* 0x10 to 0x1F                   */
@@ -78,6 +78,14 @@ static  void  OS_InitTaskStat(void);
 static  void  OS_InitTCBList(void);
 
 static  void  OS_SchedNew(void);
+
+/*=============================================================
+my function definition
+*/
+static void OS_SchedEDFMethod(void);
+static INT32U getEDFNextID();
+//avoid null poiter
+EDF_DATA idle_edf = { 9999,10000,9999,10000 };
 
 /*$PAGE*/
 /*
@@ -695,7 +703,11 @@ void  OSIntExit (void)
         }
         if (OSIntNesting == 0u) {                          /* Reschedule only if all ISRs complete ... */
             if (OSLockNesting == 0u) {                     /* ... and not locked.                      */
-                OS_SchedNew();
+                //OS_SchedNew();
+				/*================================================
+				change schedule method
+				*/
+				OS_SchedEDFMethod();
                 OSTCBHighRdy = OSTCBPrioTbl[OSPrioHighRdy];
                 if (OSPrioHighRdy != OSPrioCur) {          /* No Ctx Sw if current task is highest rdy */
 #if OS_TASK_PROFILE_EN > 0u
@@ -981,6 +993,23 @@ void  OSTimeTick (void)
             ptcb = ptcb->OSTCBNext;                        /* Point at next TCB in TCB list                */
             OS_EXIT_CRITICAL();
         }
+		/*====================================================================
+		Edit extra edt_data
+		*/
+		((EDF_DATA*)OSTCBCur->OSTCBExtPtr)->remain_time--;
+		if (((EDF_DATA*)OSTCBCur->OSTCBExtPtr)->remain_time == 0) {
+			((EDF_DATA*)OSTCBCur->OSTCBExtPtr)->deadline = ((EDF_DATA*)OSTCBCur->OSTCBExtPtr)->deadline + ((EDF_DATA*)OSTCBCur->OSTCBExtPtr)->p_value;
+			((EDF_DATA*)OSTCBCur->OSTCBExtPtr)->remain_time = ((EDF_DATA*)OSTCBCur->OSTCBExtPtr)->c_value;
+			INT32U end = OSTimeGet();
+			OSTCBCur->OSTCBDly =
+				((EDF_DATA*)OSTCBCur->OSTCBExtPtr)->p_value - (end - ((EDF_DATA*)OSTCBCur->OSTCBExtPtr)->start);
+			((EDF_DATA*)OSTCBCur->OSTCBExtPtr)->start = ((EDF_DATA*)OSTCBCur->OSTCBExtPtr)->start + ((EDF_DATA*)OSTCBCur->OSTCBExtPtr)->p_value;
+			APP_TRACE("\n%d\tComplete\t%d\t%d", OSTimeGet(), OSTCBCur->OSTCBId, getEDFNextID());
+		} else {
+			if (OSTCBCur->OSTCBId != getEDFNextID()) {
+				APP_TRACE("\n%d\tPreempt\t\t%d\t%d", OSTimeGet(), OSTCBCur->OSTCBId, getEDFNextID());
+			}
+		}
     }
 }
 
@@ -1443,7 +1472,7 @@ static  void  OS_InitTaskIdle (void)
                           OS_TASK_IDLE_ID,
                           &OSTaskIdleStk[0],                         /* Set Bottom-Of-Stack                  */
                           OS_TASK_IDLE_STK_SIZE,
-                          (void *)0,                                 /* No TCB extension                     */
+                          (void *)&idle_edf,                                 /* ===========have TCB extension                     */
                           OS_TASK_OPT_STK_CHK | OS_TASK_OPT_STK_CLR);/* Enable stack checking + clear stack  */
     #else
     (void)OSTaskCreateExt(OS_TaskIdle,
@@ -1505,7 +1534,7 @@ static  void  OS_InitTaskStat (void)
                           OS_TASK_STAT_ID,
                           &OSTaskStatStk[0],                           /* Set Bottom-Of-Stack            */
                           OS_TASK_STAT_STK_SIZE,
-                          (void *)0,                                   /* No TCB extension               */
+                          (void *)&idle_edf,                                   /* No TCB extension               */
                           OS_TASK_OPT_STK_CHK | OS_TASK_OPT_STK_CLR);  /* Enable stack checking + clear  */
     #else
     (void)OSTaskCreateExt(OS_TaskStat,
@@ -1735,6 +1764,59 @@ static  void  OS_SchedNew (void)
 #endif
 }
 
+static void OS_SchedEDFMethod(void)
+{
+	OS_TCB* current_ptr;
+	OS_TCB* edf_tcb;
+	int temp_earliest_deadline = 999999;
+	int temp_deadline = 0;
+	current_ptr = OSTCBList;
+	edf_tcb = OSTCBPrioTbl[OS_TASK_IDLE_PRIO];
+	OSPrioHighRdy = OS_TASK_IDLE_PRIO;
+	while (current_ptr->OSTCBPrio != OS_TASK_IDLE_PRIO && current_ptr->OSTCBExtPtr != 0x00000000) {
+		if (current_ptr->OSTCBDly == 0 && ((EDF_DATA*)current_ptr->OSTCBExtPtr)->remain_time>0) {
+			temp_deadline = ((EDF_DATA*)current_ptr->OSTCBExtPtr)->deadline;
+			if (temp_deadline<temp_earliest_deadline) {
+				temp_earliest_deadline = temp_deadline;
+				edf_tcb = current_ptr;
+			}
+		}
+		current_ptr = current_ptr->OSTCBNext;
+	}
+	OSPrioHighRdy = edf_tcb->OSTCBPrio;
+}
+
+
+static INT32U getEDFNextID()
+{
+	OS_TCB* p_current;
+	OS_TCB* edf_ptcb;
+	int temp_earliest_deadline = 1000000;
+	int temp_deadline = 0;
+	int isAllDelay = 1;
+	INT32U nextID = 0;
+
+	p_current = OSTCBList;
+	edf_ptcb = OSTCBList;
+	OS_ENTER_CRITICAL();
+	while (p_current->OSTCBPrio != OS_TASK_IDLE_PRIO && p_current->OSTCBExtPtr!=0x00000000) {
+		if (p_current->OSTCBDly == 0 && ((EDF_DATA*)p_current->OSTCBExtPtr)->remain_time>0) {
+			temp_deadline = ((EDF_DATA*)p_current->OSTCBExtPtr)->deadline;
+			if (temp_deadline<temp_earliest_deadline) {
+				temp_earliest_deadline = temp_deadline;
+				edf_ptcb = p_current;
+			}
+			isAllDelay = 0;
+		}
+		p_current = p_current->OSTCBNext;
+	}
+	nextID = edf_ptcb->OSTCBId;
+	if (isAllDelay == 1) {
+		nextID = 65536;
+	}
+	OS_EXIT_CRITICAL();
+	return nextID;
+}
 /*$PAGE*/
 /*
 *********************************************************************************************************

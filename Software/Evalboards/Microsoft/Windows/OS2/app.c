@@ -45,7 +45,14 @@
 *                                             LOCAL DEFINES
 *********************************************************************************************************
 */
-
+/*=====================================================================
+my task definition
+*/
+#define TASK_STACK_SIZE 512
+#define TASK1_PRIORITY 21
+#define TASK2_PRIORITY 22
+#define TASK1_ID 1
+#define TASK2_ID 2
 /*
 *********************************************************************************************************
 *                                            LOCAL VARIABLES
@@ -53,6 +60,17 @@
 */
 
 static  CPU_STK  AppTaskStartStk[APP_TASK_START_STK_SIZE];
+/*==============================================================
+os stack declaration
+edf data declaration
+*/
+OS_STK TASK1STK[TASK_STACK_SIZE];
+OS_STK TASK2STK[TASK_STACK_SIZE];
+EDF_DATA edf_datas[] =
+{
+	{ 1,3,1,4,1 },
+	{ 3,5,3,6,1 }
+};
 
 
 /*
@@ -62,7 +80,11 @@ static  CPU_STK  AppTaskStartStk[APP_TASK_START_STK_SIZE];
 */
 
 static  void  AppTaskStart(void  *p_arg);
-
+/*===========================================================
+FUNCTION DECLARATION
+*/
+static void task1(void* p);
+static void task2(void* p);
 
 /*
 *********************************************************************************************************
@@ -81,15 +103,25 @@ int  main (void)
 {
     OSInit();                                                   /* Init uC/OS-II.                                       */
 
-    OSTaskCreateExt((void(*)(void *))AppTaskStart,              /* Create the start task                                */
-        (void          *) 0,
-        (OS_STK        *)&AppTaskStartStk[APP_TASK_START_STK_SIZE - 1],
-        (INT8U          ) APP_TASK_START_PRIO,
-        (INT16U         ) APP_TASK_START_PRIO,
-        (OS_STK        *)&AppTaskStartStk[0],
-        (INT32U         ) APP_TASK_START_STK_SIZE,
-        (void          *) 0,
-        (INT16U         )(OS_TASK_OPT_STK_CHK | OS_TASK_OPT_STK_CLR));
+	OSTaskCreateExt((void(*)(void *))task1,
+		(void          *)0,
+		(OS_STK		   *)&TASK1STK[TASK_STACK_SIZE - 1],
+		(INT8U          )TASK1_PRIORITY,
+		(INT16U         )TASK1_ID,
+		(OS_STK        *)&TASK1STK[0],
+		(INT32U         )TASK_STACK_SIZE,
+		(void          *)&edf_datas[0],
+		(INT16U         )0);
+
+	OSTaskCreateExt((void(*)(void *))task2,
+		(void          *)0,
+		(OS_STK		   *)&TASK2STK[TASK_STACK_SIZE - 1],
+		(INT8U          )TASK2_PRIORITY,
+		(INT16U         )TASK2_ID,
+		(OS_STK        *)&TASK2STK[0],
+		(INT32U         )TASK_STACK_SIZE,
+		(void          *)&edf_datas[1],
+		(INT16U         )0);
 
     OSStart();                                                  /* Start multitasking (i.e. give control to uC/OS-II).  */
 }
@@ -132,4 +164,24 @@ static  void  AppTaskStart (void *p_arg)
 
         APP_TRACE_DBG(("Time: %d\n\r", OSTimeGet(&err)));
     }
+}
+
+/*================================================================
+my tasks
+*/
+static void task1(void* p) {
+	OSTimeDly(1);
+	for (;;) {
+		while (((EDF_DATA*)OSTCBCur->OSTCBExtPtr)->remain_time>0) {
+			//do nothing
+		}
+	}
+}
+static void task2(void* p) {
+	OSTimeDly(1);
+	for (;;) {
+		while (((EDF_DATA*)OSTCBCur->OSTCBExtPtr)->remain_time>0) {
+			//do nothing
+		}
+	}
 }
