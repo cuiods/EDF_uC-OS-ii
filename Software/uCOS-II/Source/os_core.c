@@ -1534,7 +1534,7 @@ static  void  OS_InitTaskStat (void)
                           OS_TASK_STAT_ID,
                           &OSTaskStatStk[0],                           /* Set Bottom-Of-Stack            */
                           OS_TASK_STAT_STK_SIZE,
-                          (void *)&idle_edf,                                   /* No TCB extension               */
+                          (void *)0,                                   /* No TCB extension               */
                           OS_TASK_OPT_STK_CHK | OS_TASK_OPT_STK_CLR);  /* Enable stack checking + clear  */
     #else
     (void)OSTaskCreateExt(OS_TaskStat,
@@ -1764,6 +1764,10 @@ static  void  OS_SchedNew (void)
 #endif
 }
 
+/*
+* ============================================================================
+* my schedule method
+*/
 static void OS_SchedEDFMethod(void)
 {
 	OS_TCB* current_ptr;
@@ -1786,7 +1790,9 @@ static void OS_SchedEDFMethod(void)
 	OSPrioHighRdy = edf_tcb->OSTCBPrio;
 }
 
-
+/*
+* for print message
+*/
 static INT32U getEDFNextID()
 {
 	OS_TCB* p_current;
@@ -1812,7 +1818,7 @@ static INT32U getEDFNextID()
 	}
 	nextID = edf_ptcb->OSTCBId;
 	if (isAllDelay == 1) {
-		nextID = 65536;
+		nextID = 65535;
 	}
 	OS_EXIT_CRITICAL();
 	return nextID;
